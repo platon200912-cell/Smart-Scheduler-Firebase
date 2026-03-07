@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>나만의 스마트 메모장</title>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; padding-top: 50px; background-color: #f4f4f9; }
+        .todo-container { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 10px 20px rgba(0,0,0,0.1); width: 350px; }
+        h2 { text-align: center; color: #333; }
+        .input-box { display: flex; gap: 10px; margin-bottom: 20px; }
+        input, select { padding: 10px; border: 1px solid #ddd; border-radius: 5px; outline: none; }
+        button { padding: 10px 15px; background: #4caf50; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        ul { list-style: none; padding: 0; }
+        li { 
+            background: #fff; border-bottom: 1px solid #eee; padding: 10px; 
+            display: flex; justify-content: space-between; align-items: center; 
+        }
+        .completed { text-decoration: line-through; color: #bbb; }
+        li span { cursor: pointer; flex: 1; }
+        .delete-btn { background: #ff4757; padding: 5px 10px; font-size: 12px; margin-left: 5px; }
+        .todo-info { display: flex; flex-direction: column; font-size: 13px; }
+        .date-text { font-size: 10px; color: #888; }
+    </style>
+</head>
+<body>
+
+<div class="todo-container">
+    <h2>📝 스마트 스케줄러</h2>
+    <div class="input-box" style="flex-direction: column;">
+        <input type="text" id="todo-input" placeholder="할 일을 적으세요">
+        <div style="display: flex; gap: 5px; margin-top: 5px;">
+            <input type="date" id="todo-date">
+            <select id="todo-priority">
+                <option value="1">매우 높음 (1)</option>
+                <option value="2">높음 (2)</option>
+                <option value="3" selected>보통 (3)</option>
+            </select>
+            <button onclick="addTodo()">추가</button>
+        </div>
+    </div>
+    
+    <div style="margin-bottom: 10px; display: flex; gap: 5px;">
+        <button onclick="sortTodos('priority')" style="background: #2196F3; font-size: 11px;">우선순위순</button>
+        <button onclick="sortTodos('date')" style="background: #2196F3; font-size: 11px;">날짜순</button>
+        <input type="date" id="filter-date" onchange="filterByDate()" style="font-size: 11px; padding: 5px; flex: 1;">
+    </div>
+
+    <ul id="todo-list"></ul>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+<script>
+    // 1. Firebase 설정
+    const firebaseConfig = {
+        apiKey: "AIzaSyAGG_InA_HtJuQQjHxS4ByhD1gtd154tzY",
+        authDomain: "my-todo-app-cd388.firebaseapp.com",
+        projectId: "my-todo-app-cd388",
+        storageBucket: "my-todo-app-cd388.firebasestorage.app",
+        messagingSenderId: "817960046413",
+        appId: "1:817960046413:web:1cd6c59c75274cc26d7104",
+        measurementId: "G-1DX39DGNCX"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // 2. 서버에서 데이터 실시간으로 가져오기
+    db.collection("todos").orderBy("date").onSnapshot((snapshot) => {
+        const todos = [];
+        snapshot.forEach((doc) => {
+            todos.push({ id: doc.id, ...doc.data() });
+        });
+        render(todos);
+    });
+
+    // 3. 할 일 추가 함수 (여기가 살아나야 버튼이 작동해!)
+    function addTodo() {
+        const input = document.getElementById('todo-input');
+        const dateInput = document.getElementById('todo-date');
+        const priorityInput = document.getElementById('todo-priority');
+
+        if (!input.value || !dateInput.value) {
+            alert("내용과 날짜를 입력해 주세요!");
+            return;
+        }
+
+        db.collection("todos").add({
+            text: input.value,
+            date: dateInput.value,
+            priority: parseInt(priorityInput.value),
+            completed: false,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        input.value = "";
+    }
+
+    // 4. 완료 체크 함수
+    function toggleTodo(id, currentStatus) {
+        db.collection("todos").doc(id).update({
+            completed: !currentStatus
+        });
+    }
+
+    // 5. 삭제 함수
+    function deleteTodo(id) {
+        if(confirm("정말 삭제할까요?")) {
+            db.collection("todos").doc(id).delete();
+        }
+    }
+
+    // 6. 정렬 기능
+    function sortTodos(type) {
+        db.collection("todos").orderBy(type).get().then((snapshot) => {
+            const todos = [];
+            snapshot.forEach((doc) => {
+                todos.push({ id: doc.id, ...doc.data() });
+            });
+            render(todos);
+        });
+    }
+
+    // 7. 날짜 필터링
+    function filterByDate() {
+        const filterDate = document.getElementById('filter-date').value;
+        db.collection("todos").where("date", "==", filterDate).get().then((snapshot) => {
+            const todos = [];
+            snapshot.forEach((doc) => {
+                todos.push({ id: doc.id, ...doc.data() });
+            });
+            render(todos);
+        });
+    }
+
+    // 8. 화면에 그리는 함수
+    function render(todos) {
+        const list = document.getElementById('todo-list');
+        list.innerHTML = '';
+        todos.forEach((todo) => {
+            const li = document.createElement('li');
+            li.innerHTML = `
+                <div class="todo-info" onclick="toggleTodo('${todo.id}', ${todo.completed})">
+                    <span class="${todo.completed ? 'completed' : ''}">${todo.text}</span>
+                    <span class="date-text">📅 ${todo.date} | 우선순위: ${todo.priority}</span>
+                </div>
+                <button class="delete-btn" onclick="deleteTodo('${todo.id}')">삭제</button>
+            `;
+            list.appendChild(li);
+        });
+    }
+</script>
+
+</body>
+</html>
