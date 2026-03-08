@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>dc인사이드(짭) 갤러리</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #f4f4f4; margin: 0; }
+        .input-container { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        input { padding: 10px; margin-bottom: 10px; border: 1px solid #ddd; border-radius: 4px; display: block; width: calc(100% - 22px); }
+        button { padding: 10px 15px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 4px; font-weight: bold; }
+        button:disabled { background: #ccc; }
+        #todo-list { list-style: none; padding: 0; }
+        li { background: white; padding: 15px; margin-bottom: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .delete-btn { background: #ff4d4d; font-size: 12px; margin-left: 10px; color: white; }
+        .modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
+        .modal-content { background: white; margin: 10% auto; padding: 20px; width: 85%; max-width: 500px; border-radius: 12px; position: relative; max-height: 80vh; overflow-y: auto; }
+        .close { position: absolute; right: 20px; top: 10px; font-size: 25px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <h2>dc인사이드(짭) 갤러리</h2>
+
+    <div class="input-container">
+        <input type="text" id="authorInput" placeholder="작성자 이름">
+        <input type="text" id="todoInput" placeholder="글 내용을 입력하세요">
+        <button id="submitBtn" onclick="addTodo()">게시하기</button>
+    </div>
+
+    <ul id="todo-list"></ul>
+
+    <div id="postModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h3 id="modalAuthor" style="color: #007bff;">작성자</h3>
+            <hr>
+            <div id="modalText" style="margin: 20px 0; line-height: 1.6; white-space: pre-wrap;">내용</div>
+            <hr>
+            <h4>댓글</h4>
+            <div id="commentList" style="margin-bottom: 15px; max-height: 150px; overflow-y: auto; background: #f9f9f9; padding: 10px; border-radius: 5px; font-size: 14px;"></div>
+            <div style="display: flex; gap: 5px;">
+                <input type="text" id="commentAuthor" placeholder="이름" style="width: 60px; margin:0; font-size: 12px;">
+                <input type="text" id="commentInput" placeholder="댓글 입력" style="flex: 1; margin:0; font-size: 12px;">
+                <button id="commentBtn" style="background: #28a745; padding: 5px 10px; color: white;">등록</button>
+            </div>
+            <br>
+            <button onclick="closeModal()" style="background: #667; color: white;">닫기</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc, increment, getDocs } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCFqh7XM6j4oJdW_pTCbKGxGV1WS_zfHdw",
+            authDomain: "my-gallery-v2.firebaseapp.com",
+            projectId: "my-gallery-v2",
+            storageBucket: "my-gallery-v2.firebasestorage.app",
+            messagingSenderId: "329774890124",
+            appId: "1:329774890124:web:61963fef38667ccf4ecfa9"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // ★ 여기를 봐줘! window.을 붙여서 버튼이 찾을 수 있게 만들었어
+        window.addTodo = async function() {
+            const authorValue = document.getElementById('authorInput').value;
+            const textValue = document.getElementById('todoInput').value;
+            const btn = document.getElementById('submitBtn');
+
+            if (authorValue && textValue) {
+                btn.disabled = true;
+                btn.innerText = "게시 중...";
+                try {
+                    await addDoc(collection(db, "todos"), {
+                        author: authorValue, 
+                        text: textValue, 
+                        createdAt: new Date(), 
+                        views: 0
+                    });
+                    document.getElementById('authorInput').value = "";
+                    document.getElementById('todoInput').value = "";
+                    alert("게시 완료!");
+                } catch (error) {
+                    alert("에러: " + error.message);
+                } finally {
+                    btn.disabled = false;
+                    btn.innerText = "게시하기";
+                }
+            } else { alert("이름과 내용을 입력해!"); }
+        };
+
+        // 모달 관련 함수들도 전부 window.을 붙여야 버튼이 인식해!
+        window.openModal = async function(id, author, text) {
+            document.getElementById('modalAuthor').innerText = author + "님의 글";
+            document.getElementById('modalText').innerText = text;
+            document.getElementById('postModal').style.display = "block";
+            
+            const postRef = doc(db, "todos", id);
+            await updateDoc(postRef, { views: increment(1) });
+            
+            loadComments(id);
+            document.getElementById('commentBtn').onclick = () => window.addComment(id);
+        };
+
+        window.addComment = async function(postId) {
+            const name = document.getElementById('commentAuthor').value;
+            const content = document.getElementById('commentInput').value;
+            if (name && content) {
+                await addDoc(collection(db, "todos", postId, "comments"), {
+                    author: name, text: content, createdAt: new Date()
+                });
+                document.getElementById('commentAuthor').value = "";
+                document.getElementById('commentInput').value = "";
+                loadComments(postId);
+            }
+        };
+
+        async function loadComments(postId) {
+            const listDiv = document.getElementById('commentList');
+            const q = query(collection(db, "todos", postId, "comments"), orderBy("createdAt", "asc"));
+            const snapshot = await getDocs(q);
+            listDiv.innerHTML = "";
+            snapshot.forEach((doc) => {
+                const d = doc.data();
+                const div = document.createElement('div');
+                div.innerHTML = `<b>${d.author}</b>: ${d.text}`;
+                listDiv.appendChild(div);
+            });
+        }
+
+        window.closeModal = function() { document.getElementById('postModal').style.display = "none"; };
+        
+        window.deleteTodo = async function(id) {
+            if (confirm("삭제할까요?")) await deleteDoc(doc(db, "todos", id));
+        };
+
+        // 실시간 목록 업데이트
+        const q = query(collection(db, "todos"), orderBy("createdAt", "desc"));
+        onSnapshot(q, (snapshot) => {
+            const list = document.getElementById('todo-list');
+            list.innerHTML = '';
+            snapshot.forEach((docSnapshot) => {
+                const data = docSnapshot.data();
+                const li = document.createElement('li');
+                li.innerHTML = `
+                    <div onclick="openModal('${docSnapshot.id}', '${data.author || '익명'}', '${data.text ? data.text.replace(/'/g, "\\'") : ''}')" style="flex: 1; cursor: pointer;">
+                        <b>[${data.author || '익명'}]</b> ${data.text ? data.text.substring(0, 20) : ''}
+                        <span style="color: gray; font-size: 12px; margin-left: 10px;">👁️ ${data.views || 0}</span>
+                    </div>
+                    <button class="delete-btn" onclick="event.stopPropagation(); deleteTodo('${docSnapshot.id}')">삭제</button>
+                `;
+                list.appendChild(li);
+            });
+        });
+    </script>
+</body>
+</html>
